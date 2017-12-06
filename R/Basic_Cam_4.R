@@ -5,11 +5,12 @@ rm(list=ls())
 #parent function for package
 ##############
 
-select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
+GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                   family = "gaussian",
                   crossMeth = c("method1", "method2", "method3"),
                   numChromosomes = NULL,
-                  pCrossover = 1,
+                  pCrossover = 0.8,
+                  mutation = NULL,
                   user_objFun = NULL,
                   converge = TRUE, minimize = TRUE, parallel = FALSE) {
 
@@ -21,9 +22,11 @@ select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
     if(missing(minimize)) {minimize <- TRUE}
     if(missing(parallel)) {parallel <- FALSE}
     if(missing(user_objFun)) {user_objFun <- NULL}
-    require(doParallel)
+    if(missing(mutation)) {mutation <- "1 / (P * sqrt(C))"}
+    
     require(abind)
-
+    require(parallel)
+    
     #error checking
 
     #function objects
@@ -52,8 +55,6 @@ select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
         convergeData[, , 1] <- objFunOutput_t0[
                                 order(objFunOutput_t0[, 2], decreasing = T),
                                 c(1, 3)]
-
-
 
     #Step 3. loop through successive generations until either:
         #1. finish default or user specified # of iterations
@@ -88,7 +89,7 @@ select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
 
                 # check convergence ----------------
                 if (i > 10 & converge == TRUE) {
-                    if(isTRUE(all.equal(mean(convergeData[1:(P * 0.5), 2, i]),
+                    if(isTRUE(all.equal(mean(convergeData[1:(P * 0.25), 2, i]),
                                         convergeData[1, 2, i],
                                         check.names = F,
                                         tolerance = tol))) {
@@ -100,15 +101,14 @@ select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                     }
                 }
             }
-
-
-    #process output ----------------
+    
+    #Step 4: process output ----------------
     bestModel <- generation_t1[convergeData[1, 1, i], ]
     value <- convergeData[1, 2, dim(convergeData)[3]]
     if(dim(convergeData)[3] < iter) {converged <- "Yes"
     } else {converged <- "No"}
 
-    output <- list("BestModel" = bestModel,
+    output <- list("BestModel" = colnames(X)[bestModel == 1],
                    objFun = c(objFun, value),
                    iter = dim(convergeData)[3],
                    converged = converged,
@@ -155,9 +155,11 @@ generate_founders <- function(X) {
     generation_t0 <- matrix(unlist(unique(firstGen)[1:P]),
                        ncol = C, byrow = TRUE)
 
-    generation_t0 <- generation_t0[apply(generation_t0[, -1], 1,
-                                     function(x) !all(x == 0)), ]
-
+    #generation_t0 <- generation_t0[apply(generation_t0[, -1], 1,
+    #                                 function(x) !all(x == 0)), ]
+    generation_t0 <- generation_t0[apply(generation_t0, 1,
+                                         function(x) !all(x == 0)), ]
+       
 
     return(generation_t0)
 }
@@ -274,16 +276,18 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
     #nextGeneration: stores new generation
     #P1, P2: selected parents
 
-    #inherit variables
-    crossMeth <- get("crossMeth", mode = "any", envir = parent.frame())
-
-    #set variables
+    # set variables
     P <- dim(generation_t0)[1]
     C <- dim(generation_t0)[2]
     rank <- objFunOutput_t0[, 2]
     score <- objFunOutput_t0[, 3]
+    
+    # inherit variables
+    crossMeth <- get("crossMeth", mode = "any", envir = parent.frame())
+    pCrossover <- get("pCrossover", mode = "any", envir = parent.frame())
+    mutation <- eval(parse(text = get("mutation", mode = "any", envir = parent.frame())))
 
-    #set probability of selection
+    # probability of selection
     phi <- (2 * rank) / (P * (P + 1))
 
     #set up plot to view sampling in each generation
@@ -294,10 +298,6 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
     #Create matrix for next generation
     generation_t1 <- matrix(NA, dim(generation_t0)[1], dim(generation_t0)[2])
 
-    #keep high rank parents and put in new generation
-    #goodGeneration_t0 <- generation_t0[rank > quantile(rank, probs = 0.95), ]
-    #generation_t1[1:dim(goodGeneration_t0)[1], ] <- goodGeneration_t0
-
     #########
     #Selection, Crossover, and Mutation
     #########
@@ -305,7 +305,7 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
     i <- 1 #dim(goodGeneration_t0)[1] + 1 #initialize while loop
     while(i <= dim(generation_t1)[1]) {
 
-        #SELECTION: select Parents
+        #SELECTION of parents ----------------
         #method 1: both parents selected by rank
             #parentInd <- sample(1:P, 2, prob=phi, replace = F) #this is better than method 2
 
@@ -321,72 +321,80 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
         #points(phi[parentInd], score[parentInd], pch = 19,
         #       col = alpha("black", 0.5))
 
-        #CROSSOVER and MUTATION parent to  create child
-
-        if (crossMeth == "method1") {
-
-            #METHOD 1:
-                #crossover: method upweights parent with higher rank high
-                #create one child
-                childProb <- parents[1, ] * parentRank[1] /
-                        (parentRank[1] + parentRank[2]) +
-                                parents[2, ] * parentRank[2]  /
-                        (parentRank[1] + parentRank[2])
-                #mutation: this method has A LOT of mutation
-                child1 <- rbinom(C, 1, prob = childProb)
-                child2 <- rbinom(C, 1, prob = childProb)
-
-        } else if (crossMeth == "method2") {
-
-            #METHOD 2:
+        #CROSSOVER and MUTATION ----------------
+        if (rbinom(1, 1, pCrossover) == 1 ) {
+        
+            if (crossMeth == "method1") {
+                
+                #METHOD 1 ----------------
                 #crossover: two crossover points, non-overlapping
-                #creates two children
-                cross1 <- sample(2:(C/2-1), 1)
-                cross2 <- sample((C/2+1):(C-1), 1)
-                child1 <- c(parents[1, 1:cross1],
-                            parents[2, (cross1+1):(C/2)],
-                            parents[1, (C/2+1):cross2],
-                            parents[2, (cross2+1):C])
-
-                child2 <- c(parents[2, 1:cross1],
-                            parents[1, (cross1+1):(C/2)],
-                            parents[2, (C/2+1):cross2],
-                            parents[1, (cross2+1):C])
-
-                #mutation:
-                child1 <- abs(round(child1, 0) -
-                                rbinom(C, 1, prob = 1 / (P * sqrt(C))))
-                child2 <- abs(round(child2, 0) -
-                                  rbinom(C, 1, prob = 1 / (P * sqrt(C))))
-
-        } else if (crossMeth == "method3") {
-
-            #METHOD 3
-                #randomly samples non-concordant variables
-                #between parents, slightly upweights parent selected
-                #by prob. proportional to rank
-                #this provide mutation as well
-                #2 children
-                child1 <- parents[1, ]
-                child2 <- parents[2, ]
-                child1[parents[1, ] != parents[2, ]] <-
-                    rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
-                        prob = parentRank[1] / (parentRank[1] + parentRank[2]))
-                child2[parents[1, ] != parents[2, ]] <-
-                    rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
-                        prob = 1 - (parentRank[1] / (parentRank[1] + parentRank[2])))
+                    cross <- sort(sample(seq(2,(C - 2), 2), 3, replace = F))
+                    #if(cross[1] + 1 == cross[2]) {
+                        cross[2] <- cross[2] + 1
+                    #}                
+                    child1 <- c(parents[1, 1:cross[1]],
+                                parents[2, (cross[1] + 1):cross[2]],
+                                parents[1, (cross[2] + 1):cross[3]],
+                                parents[2, (cross[3] + 1):C])
+                    child2 <- abs(child1 - rep(1, C))
+                    
+                    #mutation:
+                    child1 <- abs(round(child1, 0) -
+                                      rbinom(C, 1, prob = mutation))
+                    child2 <- abs(round(child2, 0) -
+                                      rbinom(C, 1, prob = mutation))
+        
+            } else if (crossMeth == "method2") {
+    
+                #METHOD 2 ----------------
+                    #crossover: method upweights parent with higher rank high
+                    childProb <- parents[1, ] * parentRank[1] /
+                        (parentRank[1] + parentRank[2]) +
+                        parents[2, ] * parentRank[2]  /
+                        (parentRank[1] + parentRank[2])
+                    child1 <- rbinom(C, 1, prob = childProb)
+                    child2 <- rbinom(C, 1, prob = childProb)
+                    
+                    #mutation
+                    child1 <- abs(round(child1, 0) -
+                                      rbinom(C, 1, prob = mutation))
+                    child2 <- abs(round(child2, 0) -
+                                      rbinom(C, 1, prob = mutation))
+                    
+            } else if (crossMeth == "method3") {
+    
+                #METHOD 3 ----------------
+                    #randomly samples non-concordant variables
+                    #between parents, slightly upweights parent selected
+                    #by prob. proportional to rank
+                    #this provide mutation as well
+                    #2 children
+                    child1 <- parents[1, ]
+                    child2 <- parents[2, ]
+                    child1[parents[1, ] != parents[2, ]] <-
+                        rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
+                            prob = parentRank[1] / (parentRank[1] + parentRank[2]))
+                    child2[parents[1, ] != parents[2, ]] <-
+                        rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
+                            prob = 1 - (parentRank[1] / (parentRank[1] + parentRank[2])))
+            }
+        } else {
+            child1 <- parents[1, ]
+            child2 <- parents[2, ]
         }
-
+            
         #check if duplicate child, and for all non-zero genes
-        #if (all(!rowSums(generation_t1 == child1 |
-        #                 generation_t1 == child2, na.rm = T) == C) &
-        #    sum(child1) > 0 & sum(child2) > 0) {
-            #not dup: add child to new generation
+        if (all(!rowSums(generation_t1 == child1, na.rm = T) == C,
+                !rowSums(generation_t1 == child2, na.rm = T) == C) &
+                sum(child1) > 0 & sum(child2) > 0) {
+            #not dup: add childs to new generation
             generation_t1[c(i, i + 1), ] <- rbind(child1, child2)
             #update counter
             i <- i + 2
-        #}
+
+        }
     }
+    
     #return new new generation
     return(generation_t1)
 }
@@ -432,7 +440,8 @@ a1[, , 2:5] <- a2
 #GAfun(Y = iris$Sepal.Length, X = iris[ , - 1], objFun = "AIC")
 #run against three different crossover/mutation methods
 output.meth1 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
-                crossMeth = "method1", converge = T, family = "gaussian")
+                crossMeth = "method1", converge = T, family = "gaussian",
+                pCrossover = 1)
 output.meth1.all <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
                       crossMeth = "method1", converge = F) #with defaults
 output.meth2 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
@@ -467,11 +476,12 @@ sum(diff(output.meth2.all$timing))
 sum(diff(output.meth3.all$timing))
 
 #check variables selected
-colnames(x)[output.meth1$BestModel == 1]
-colnames(x)[output.meth2$BestModel == 1]
-colnames(x)[output.meth3$BestModel == 1]
+output.meth1$BestModel
+output.meth2$BestModel
+output.meth3$BestModel
 
 
+i <- 1
 
 #plot results
 plots <- grep("output.meth", ls(), value = T)
