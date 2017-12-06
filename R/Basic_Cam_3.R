@@ -14,11 +14,11 @@ GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLike", "user"),
     if(missing(objFun)) {objFun <- "AIC"}
     if(missing(family)) {family <- "gaussian"}
     if(missing(minimize)) {minimize <- TRUE}
-    if(missing(parallel)) {parallel <- FALSE
-    } else if (parallel == TRUE) {
-        require(parallel)
-        require(foreach)
+    if(missing(parallel)) {
+        parallel <- FALSE
         require(doParallel)
+    } else if (parallel == TRUE) {
+        require(foreach)
         
         parallel <- TRUE
     }
@@ -37,12 +37,12 @@ GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLike", "user"),
         #Generate initial population
         cat("1. Create founders")
         
-        generation_t0 <- initialGA(X)
+        generation_t0 <- generate_founders(X)
     
     #Step 2. Evaluate Fitness of inital pop
         cat("\n2. Eval founder fitness")
     
-        objFunOutput_t0 <- evalGeneration(generation_t0, Y, X)
+        objFunOutput_t0 <- evaluate_Fitness(generation_t0, Y, X)
     
         #create array to store fitness data for each iteration
         convergeData <- array(dim = c(nrow(generation_t0), 2, iter))
@@ -68,10 +68,10 @@ GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLike", "user"),
             if (i == 1) { generation_t1 <- generation_t0 
                             objFunOutput_t1 <- objFunOutput_t0 }
             
-            generation_t1 <- createNextGen(generation_t1, objFunOutput_t1, iter)
+            generation_t1 <- create_next_generation(generation_t1, objFunOutput_t1, iter)
             
             #eval fitness of children
-            objFunOutput_t1 <-evalGeneration(generation_t1, 
+            objFunOutput_t1 <- evaluate_Fitness(generation_t1, 
                                                    Y, X)
             
             #store fitness data
@@ -117,7 +117,7 @@ GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLike", "user"),
 ##############
 
 #initiative founding chromosomes
-initialGA <- function(X) {
+generate_founders <- function(X) {
     
     #d: #number of genes/variables in design matrix
     #P: #number of parent chromosomes
@@ -133,7 +133,9 @@ initialGA <- function(X) {
     # Cam: reading says choose P to satisfy C ≤ P ≤ 2C
     #P <- 10 * C 
     P <- 2 * C
-    if (P > 100) {P <- 100}
+    if (P > 100) {P <- 100
+    } else if (P < 20) {
+        P <- 20}
     
     #randomly generate parent generate
     geneSample <- sample(c(0, 1), replace = TRUE, size = ceiling(1.2 * C * P))
@@ -159,17 +161,17 @@ initialGA <- function(X) {
 
 #eval geneartion using lm/glm and objective function
 #default is AIC
-evalGeneration <- function(generation_t0, Y, X) {
+evaluate_Fitness <- function(generation_t0, Y, X) {
     
     family <- get("family", mode = "any", envir = parent.frame())
     objFun <- get("objFun", mode = "any", envir= parent.frame())
     parallel <- get("parallel", mode = "any", envir= parent.frame())
     minimize <- get("minimize", mode = "any", envir= parent.frame())
     
-    #family <- "gaussian"
-    #objFun <- "AIC"
-    #minimize <- TRUE
-    #parallel <- FALSE
+    family <- "gaussian"
+    objFun <- "AIC"
+    minimize <- TRUE
+    parallel <- FALSE
     
     #input objects
         #generation_t: chromosomes to be evaluated
@@ -232,7 +234,7 @@ evalGeneration <- function(generation_t0, Y, X) {
 }
 
 #create next generation function
-createNextGen <- function(generation_t0, objFunOutput_t0, iter) {
+create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
     #will create children, selecting mate pairs based upon
     #with higher objectFun scores
     #nextGen will be of same size of prev generation
@@ -366,10 +368,15 @@ x <- cbind(sim$x, bogus)
 y <- sim$y
 dim(x);length(y)
 
+data(iris)
+
 ##############
 #test function with simulated data
 ##############
 
+Y = iris$Sepal.Length
+X = iris[ , - 1]
+GAfun(Y = iris$Sepal.Length, X = iris[ , - 1], objFun = "AIC")
 #run against three different crossover/mutation methods
 output.meth1 <- GAfun(y, x, iter = 500, objFun = "AIC", parallel = T,
                 crossMeth = "method1") #with defaults
