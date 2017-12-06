@@ -4,15 +4,8 @@ rm(list=ls())
 ##############
 #parent function for package
 ##############
-y <- rnorm(100)
-x <- matrix(rnorm(100*2), ncol = 2)
 
-mod <- lm(y ~ x)
-class(mod)
-str(mod)
-?extractAIC
-
-GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
+select <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                   family = "gaussian",
                   crossMeth = c("method1", "method2", "method3"),
                   numChromosomes = NULL,
