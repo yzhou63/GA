@@ -13,6 +13,7 @@ user_fun <- function(mod) {
 GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                   family = "gaussian",
                   crossMeth = c("method1", "method2", "method3", "user"),
+                  
                   numChromosomes = NULL,
                   pCrossover = 0.8,
                   
@@ -201,8 +202,13 @@ evaluate_Fitness <- function(generation_t0, Y, X) {
             BIC(mod)
         } else if (objFun == "logLik") {
             logLik(mod)
-        } else if (objFun == "user") {
-            user_func(mod)
+        } else {
+          #METHOD Self-Defined  loss function----------------
+          #The input is the model
+          #The output should be a list of values
+          tryCatch((tryCatch(match.fun(objFun))),
+                   + warning = function(w) {print(paste("The user specified function does not exist")); }, error = function(e) {print(paste("The user specified function does not exist")); stop(e) })
+          match.fun(objFun)(mod)
         }
     }
 
@@ -357,6 +363,7 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
     
                 #METHOD 2 ----------------
                     #crossover: method upweights parent with higher rank high
+                    #We give rank as the weights of probability on each element in gene to be selected.
                     childProb <- parents[1, ] * parentRank[1] /
                         (parentRank[1] + parentRank[2]) +
                         parents[2, ] * parentRank[2]  /
@@ -386,7 +393,18 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
                     child2[parents[1, ] != parents[2, ]] <-
                         rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
                             prob = 1 - (parentRank[1] / (parentRank[1] + parentRank[2])))
-            }
+            } else{
+              #METHOD Self-Defined ----------------
+                #The input is the parent matrix
+                #The output should be a list which contained 
+                #2 elements each represent child
+              tryCatch((tryCatch(match.fun(crossMeth))),
+                       + warning = function(w) {print(paste("The user specified function does not exist")); }, error = function(e) {print(paste("The user specified function does not exist")); stop(e) })
+              child1<-apply(parents, FUN =crossMeth )[1]
+              child2<-apply(parents, FUN =crossMeth )[2]
+              
+              
+              } 
         } else {
             child1 <- parents[1, ]
             child2 <- parents[2, ]
@@ -542,3 +560,7 @@ for (i in 1:length(plots)) {
 
     #dev.off()
 }
+
+tryCatch((tryCatch(match.fun(he))),
+warning = function(w) {print(paste("The user specified function does not exist")); }, error = function(e) {print(paste("The user specified function does not exist")); stop(e) })
+
