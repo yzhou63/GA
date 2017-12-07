@@ -5,15 +5,22 @@ rm(list=ls())
 #parent function for package
 ##############
 
+
+user_fun <- function(mod) {
+    extractAIC(mod)[2]
+}
+
 GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                   family = "gaussian",
-                  crossMeth = c("method1", "method2", "method3"),
+                  crossMeth = c("method1", "method2", "method3", "user"),
                   numChromosomes = NULL,
                   pCrossover = 0.8,
+                  
                   mutation = NULL,
                   user_objFun = NULL,
-                  converge = TRUE, minimize = TRUE, parallel = FALSE) {
-
+                  converge = TRUE, minimize = TRUE, parallel = FALSE,
+                  userfun = NULL) {
+                    
     #input objects
     if(missing(iter)) {iter <- 100}
     if(missing(objFun)) {objFun <- "AIC"}
@@ -23,6 +30,7 @@ GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
     if(missing(parallel)) {parallel <- FALSE}
     if(missing(user_objFun)) {user_objFun <- NULL}
     if(missing(mutation)) {mutation <- "1 / (P * sqrt(C))"}
+
     
     require(abind)
     require(parallel)
@@ -182,10 +190,11 @@ evaluate_Fitness <- function(generation_t0, Y, X) {
     P <- dim(generation_t0)[1]
 
     # calculate obj function ----------------
-    calc_objective_function <- function(mod) {
-
+    calc_objective_function <- function(mod, user_fun) {
+        
         objFun <- get("objFun", mode = "any", envir = parent.frame())
-
+        user_func <-match.fun(user_func)
+        
         if (objFun == "AIC") {
             extractAIC(mod)[2]
         } else if (objFun == "BIC") {
@@ -329,9 +338,9 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
                 #METHOD 1 ----------------
                 #crossover: two crossover points, non-overlapping
                     cross <- sort(sample(seq(2,(C - 2), 2), 3, replace = F))
-                    #if(cross[1] + 1 == cross[2]) {
-                        cross[2] <- cross[2] + 1
-                    #}                
+
+                    cross[2] <- cross[2] + 1
+           
                     child1 <- c(parents[1, 1:cross[1]],
                                 parents[2, (cross[1] + 1):cross[2]],
                                 parents[1, (cross[2] + 1):cross[3]],
@@ -408,7 +417,7 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
 #simulate toy dataset
 library(mlbench)
 n <- 100
-p <- 40
+p <- 5
 sigma <- 1
 set.seed(30)
 sim <- mlbench.friedman1(n, sd = sigma)
@@ -418,6 +427,17 @@ bogus <- matrix(rnorm(n * p), nrow = n)
 colnames(bogus) <- paste("bogus", 5 + (1:ncol(bogus)), sep = "")
 x <- cbind(sim$x, bogus)
 y <- sim$y
+dim(x)
+length(y)
+
+wine <- rbinom(100, 2, 0.5)
+wine[wine == 0] <- "red"
+wine[wine == 1] <- "white"
+wine[wine == 2] <- "rose"
+x <- cbind(x[, 1:4], wine)
+head(x)
+dim(x)
+mod <- lm(y ~ x)
 
 #binomial
 #y[y < quantile(y, probs = 0.5)] <- 0
@@ -439,9 +459,9 @@ a1[, , 2:5] <- a2
 
 #GAfun(Y = iris$Sepal.Length, X = iris[ , - 1], objFun = "AIC")
 #run against three different crossover/mutation methods
-output.meth1 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth1 <- GAfun(y, x, iter = 100, objFun = "user", parallel = F,
                 crossMeth = "method1", converge = T, family = "gaussian",
-                pCrossover = 1)
+                pCrossover = 1, userfun = user_fun)
 output.meth1.all <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
                       crossMeth = "method1", converge = F) #with defaults
 output.meth2 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
