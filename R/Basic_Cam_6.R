@@ -1,15 +1,7 @@
 
 rm(list=ls())
 
-##############
-#parent function for package
-##############
 
-P <- 99
-if (P %% 2 != 0) {
-    P <- P - 1
-}
-P
 #X <- x
 #Y <- y
 #obj_fun <- "AIC"
@@ -23,6 +15,14 @@ P
 #calc_objective_function = calc_objective_function
 #start_chrom = NULL
 #mutation_rate = "1 / (P * sqrt(C))"
+
+
+##############
+#parent function for package
+##############
+
+
+
 
 select <- function(Y, X, iter, family = "gaussian",
                   obj_fun = c("AIC", "BIC", "logLik", "user"),
@@ -52,12 +52,13 @@ select <- function(Y, X, iter, family = "gaussian",
     
     #error checking
 
+    
+    
     ################
     # functions 
     ################
-    
-    
-    # Selection of parents function ----------------
+
+    # Select parents function ----------------
     select_parents <- function(generation_t0, parent_rank, P) {
         
         # probability of selection ----------------
@@ -315,7 +316,6 @@ generate_founders <- function(X, start_chrom) {
     #                                 function(x) !all(x == 0)), ]
     generation_t0 <- generation_t0[apply(generation_t0, 1,
                                          function(x) !all(x == 0)), ]
-       
 
     return(generation_t0)
 }
