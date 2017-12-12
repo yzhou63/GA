@@ -10,10 +10,32 @@ user_fun <- function(mod) {
     extractAIC(mod)[2]
 }
 
+userCross <- function(p1, p2) {
+    #METHOD 1 ----------------
+    #crossover: two crossover points, non-overlapping
+    cross <- sort(sample(seq(2,(C - 2), 2), 3, replace = F))
+    
+    child1 <- c(parent1[1:cross[1]],
+                parent2[(cross[1] + 1):cross[2]],
+                parent1[(cross[2] + 1):cross[3]],
+                parent2[(cross[3] + 1):C])
+    child2 <- abs(child1 - rep(1, C))
+    
+    #mutation:
+    child1 <- abs(round(child1, 0) -
+                      rbinom(C, 1, prob = mutation))
+    child2 <- abs(round(child2, 0) -
+                      rbinom(C, 1, prob = mutation))
+    
+    return(child1, child2)
+    
+}
+
+
+
 GAfun <- function(Y, X, iter, objFun = c("AIC", "BIC", "logLik", "user"),
                   family = "gaussian",
                   crossMeth = c("method1", "method2", "method3", "user"),
-                  
                   numChromosomes = NULL,
                   pCrossover = 0.8,
                   
@@ -328,9 +350,11 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
             parentInd <- c(sample(1:P, 1, prob=phi, replace = F),
                            sample(1:P, 1, replace = F))
 
-            parents <- generation_t0[parentInd, ]
-            parentRank <- rank[parentInd]
-            parentScore <- score[parentInd]
+            parent1 <- generation_t0[parentInd[1], ]
+            parent2 <- generation_t0[parentInd[1], ]
+            parent1r <- rank[parentInd[1]]
+            parent2r <- rank[parentInd[2]]
+            #parentScore <- score[parentInd]
 
         #update plot with sampled parents
         #points(phi[parentInd], score[parentInd], pch = 19,
@@ -345,12 +369,10 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
                 #crossover: two crossover points, non-overlapping
                     cross <- sort(sample(seq(2,(C - 2), 2), 3, replace = F))
 
-                    cross[2] <- cross[2] + 1
-           
-                    child1 <- c(parents[1, 1:cross[1]],
-                                parents[2, (cross[1] + 1):cross[2]],
-                                parents[1, (cross[2] + 1):cross[3]],
-                                parents[2, (cross[3] + 1):C])
+                    child1 <- c(parent1[1:cross[1]],
+                                parent2[(cross[1] + 1):cross[2]],
+                                parent1[(cross[2] + 1):cross[3]],
+                                parent2[(cross[3] + 1):C])
                     child2 <- abs(child1 - rep(1, C))
                     
                     #mutation:
@@ -364,10 +386,10 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
                 #METHOD 2 ----------------
                     #crossover: method upweights parent with higher rank high
                     #We give rank as the weights of probability on each element in gene to be selected.
-                    childProb <- parents[1, ] * parentRank[1] /
-                        (parentRank[1] + parentRank[2]) +
-                        parents[2, ] * parentRank[2]  /
-                        (parentRank[1] + parentRank[2])
+                    childProb <- parent1 * parent1r[1] /
+                        (parent1r + parent2r) +
+                        parent2 * parent2r /
+                        (parent1r + parent2r)
                     child1 <- rbinom(C, 1, prob = childProb)
                     child2 <- rbinom(C, 1, prob = childProb)
                     
@@ -385,14 +407,22 @@ create_next_generation <- function(generation_t0, objFunOutput_t0, iter) {
                     #by prob. proportional to rank
                     #this provide mutation as well
                     #2 children
-                    child1 <- parents[1, ]
-                    child2 <- parents[2, ]
-                    child1[parents[1, ] != parents[2, ]] <-
-                        rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
-                            prob = parentRank[1] / (parentRank[1] + parentRank[2]))
+                    child1 <- parent1
+                    child2 <- parent2
+                    child1[parent1 != parent2] <-
+                        rbinom(sum(parent1 - parent2 != 0), 1,
+                            prob = parent1r / (parent1r + parent2r))
                     child2[parents[1, ] != parents[2, ]] <-
                         rbinom(sum(parents[1, ] - parents[2, ] != 0), 1,
                             prob = 1 - (parentRank[1] / (parentRank[1] + parentRank[2])))
+                    
+                    #mutation
+                    child1 <- abs(round(child1, 0) -
+                                      rbinom(C, 1, prob = mutation))
+                    child2 <- abs(round(child2, 0) -
+                                      rbinom(C, 1, prob = mutation))
+                    
+                    
             } else{
               #METHOD Self-Defined ----------------
                 #The input is the parent matrix
