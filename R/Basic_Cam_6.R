@@ -5,10 +5,14 @@ rm(list=ls())
 #parent function for package
 ##############
 
-
+P <- 99
+if (P %% 2 != 0) {
+    P <- P - 1
+}
+P
 #X <- x
 #Y <- y
-#objFun <- "AIC"
+#obj_fun <- "AIC"
 #family <- "gaussian"
 #crossover_method <- "method1"
 #pCrossover = 0.8
@@ -18,32 +22,31 @@ rm(list=ls())
 #converge <- T
 #calc_objective_function = calc_objective_function
 #start_chrom = NULL
-#mutation_rate = NULL
+#mutation_rate = "1 / (P * sqrt(C))"
 
-GAfun <- function(Y, X, iter, family = "gaussian",
-                  objFun = c("AIC", "BIC", "logLik", "user"),
+select <- function(Y, X, iter, family = "gaussian",
+                  obj_fun = c("AIC", "BIC", "logLik", "user"),
                   calc_objective_function = calc_objective_function,
                   crossover_parents = crossover_parents,
                   crossover_method = c("method1", "method2", "method3"),
-                  start_chrom = NULL,
                   pCrossover = 0.8,
+                  start_chrom = NULL,
                   mutation_rate = NULL,
                   user_objFun = NULL,
-                     converge = TRUE, minimize = TRUE, parallel = FALSE,
+                  converge = TRUE, 
+                  minimize = TRUE, 
+                  parallel = FALSE,
                   userfun = NULL) {
                     
     #input objects
     if(missing(iter)) {iter <- 100}
-    if(missing(objFun)) {objFun <- "AIC"}
+    if(missing(obj_fun)) {obj_fun <- "AIC"}
     if(missing(family)) {family <- "gaussian"}
     if(missing(converge)) {converge <- FALSE}
     if(missing(minimize)) {minimize <- TRUE}
     if(missing(parallel)) {parallel <- FALSE}
-    if(missing(user_objFun)) {user_objFun <- NULL}
     if(missing(mutation_rate)) {mutation_rate <- "1 / (P * sqrt(C))"}
-
-    #calc_objective_function <- match.fun(calc_objective_function)
-    
+    #if(is.null(start_chrom)) {start_chrom}
     require(abind)
     require(parallel)
     
@@ -55,18 +58,15 @@ GAfun <- function(Y, X, iter, family = "gaussian",
     
     
     # Selection of parents function ----------------
-    select_parents <- function(generation_t0) {
-        
-        rank <- get("rank", mode = "any", envir = parent.frame())
-        P <- get("P", mode = "any", envir = parent.frame())
+    select_parents <- function(generation_t0, parent_rank, P) {
         
         # probability of selection ----------------
-        phi <- (2 * rank) / (P * (P + 1))
+        phi <- (2 * parent_rank) / (P * (P + 1))
         
-        #method 1: both parents selected by rank
+        #method 1: both parents selected by parent_rank
         #parentInd <- sample(1:P, 2, prob=phi, replace = F) #this is better than method 2
         
-        #method 2: first parent by rank, second random
+        #method 2: first parent by parent_rank, second random
         parentInd <- c(sample(1:P, 1, prob=phi, replace = F),
                        sample(1:P, 1, replace = F))
     
@@ -76,14 +76,14 @@ GAfun <- function(Y, X, iter, family = "gaussian",
     
     # crossover function ----------------
     crossover_parents <- function(generation_t0, parentInd, 
-                                  crossover_method, pCrossover, rank)  {
+                                  crossover_method, pCrossover, parent_rank)  {
         
         # get parent info
         parent1 <- generation_t0[parentInd[1], ]
         parent2 <- generation_t0[parentInd[2], ]
         C <- length(parent1)
-        parent1r <- rank[parentInd[1]]
-        parent2r <- rank[parentInd[2]]
+        parent1r <- parent_rank[parentInd[1]]
+        parent2r <- parent_rank[parentInd[2]]
         
         if (rbinom(1, 1, pCrossover) == 1 ) {
             if (crossover_method == "method1") {
@@ -104,7 +104,7 @@ GAfun <- function(Y, X, iter, family = "gaussian",
             } else if (crossover_method == "method2") {
                 
                 #METHOD 2 ----------------
-                #method upweights parent with higher rank high
+                #method upweights parent with higher parent_rank high
                 childProb <- parent1 * parent1r[1] /
                     (parent1r + parent2r) +
                     parent2 * parent2r /
@@ -116,7 +116,7 @@ GAfun <- function(Y, X, iter, family = "gaussian",
                 
                 #METHOD 3 ----------------
                 #randomly samples non-concordant variables between parents 
-                # slightly upweights parent selected by prob. proportional to rank
+                # slightly upweights parent selected by prob. proportional to parent_rank
                 child1 <- parent1
                 child2 <- parent2
                 child1[parent1 != parent2] <-
@@ -145,34 +145,26 @@ GAfun <- function(Y, X, iter, family = "gaussian",
     }
     
     # calculate obj function ----------------
-    calc_objective_function <- function(mod) {
+    calc_objective_function <- function(mod, obj_fun) {
         
-        objFun <- get("objFun", mode = "any", envir = parent.frame())
-        #user_func <-match.fun(user_func)
-        
-        if (objFun == "AIC") {
+        if (obj_fun == "AIC") {
             extractAIC(mod)[2]
-        } else if (objFun == "BIC") {
+        } else if (obj_fun == "BIC") {
             BIC(mod)
-        } else if (objFun == "logLik") {
+        } else if (obj_fun == "logLik") {
             logLik(mod)
-        } else {
-            ## need to add user function
-        }
+        } 
     }
     
-    # rank obj function output ----------------
-    rank_objective_function <- function(objFunOutput) {
+    # parent_rank obj function output ----------------
+    rank_objective_function <- function(objFunOutput, obj_fun, minimize) {
         
-        objFun <- get("objFun", mode = "any", envir = parent.frame())
-        minimize <- get("minimize", mode = "any", envir = parent.frame())
-        
-        if (objFun %in% c("AIC", "BIC") | minimize == TRUE) {
-            r <- rank(-objFunOutput, na.last = TRUE, ties.method = "first")
-        } else if (objFun == "logLike" | minimize == FALSE) {
-            r <- rank(objFunOutput, na.last = TRUE, ties.method = "first")
+        if (obj_fun %in% c("AIC", "BIC") | minimize == TRUE) {
+            r <- base::rank(-objFunOutput, na.last = TRUE, ties.method = "first")
+        } else if (obj_fun == "logLike" | minimize == FALSE) {
+            r <- base::rank(objFunOutput, na.last = TRUE, ties.method = "first")
         }
-        return(cbind(chr = 1:P, rank = r, objFunOutput))
+        return(cbind(chr = 1:P, parent_rank = r, objFunOutput))
     }
     
     
@@ -181,21 +173,20 @@ GAfun <- function(Y, X, iter, family = "gaussian",
     #########
     
     #step 1: Generate founders ----------------
-        generation_t0 <- generate_founders(X)
+        generation_t0 <- generate_founders(X, start_chrom)
         P <- nrow(generation_t0) #num chromosomes
         cat("1. Generate founders: ", P, "chromosomes")
-        t1 <- Sys.time()
-
+        t1 <- Sys.time() # timing
+        
     #Step 2. Evaluate founder fitness Fitness of inital pop  ----------------
+        cat("\n2. Evaluate founders: ")
         objFunOutput_t0 <- evaluate_fitness(generation_t0, Y, X,
-                                            family, objFun,
+                                            family, obj_fun,
                                             parallel, minimize, 
                                             calc_objective_function,
                                             rank_objective_function)
         
-        
-        cat("\n2. Evaluate founder fitness")
-        t1 <- c(t1, Sys.time())
+        t1 <- c(t1, Sys.time()) #timing
 
         #create array to store fitness data for each iteration
         convergeData <- array(dim = c(P, 2, 1)) #P x 2 x iter
@@ -204,9 +195,9 @@ GAfun <- function(Y, X, iter, family = "gaussian",
         convergeData[, , 1] <- objFunOutput_t0[
                                 order(objFunOutput_t0[, 2], decreasing = T),
                                 c(1, 3)]
-
+    
     #Step 3. loop through successive generations until either:
-        tol = 1e12 * .Machine$double.eps #tolerance for converage check
+        tol = 1e4 * sqrt(.Machine$double.eps) #tolerance for converage check
         converged <- 0
 
         cat("\n3. Begin breeding \n Generations: ")
@@ -219,7 +210,8 @@ GAfun <- function(Y, X, iter, family = "gaussian",
                     objFunOutput_t1 <- objFunOutput_t0
                 }
 
-                generation_t1 <- create_next_generation(generation_t1,
+                generation_t1 <- create_next_generation(generation_t1, 
+                                                        objFunOutput_t1,
                                                         select_parents,
                                                         crossover_method,
                                                         crossover_parents,
@@ -227,39 +219,38 @@ GAfun <- function(Y, X, iter, family = "gaussian",
                                                         mutate_child,
                                                         mutation_rate)
    
-                
-
                 # 2. evaluate children fitness ----------------
                 objFunOutput_t1 <- evaluate_fitness(generation_t1, Y, X,
-                                                    family, objFun,
+                                                    family, obj_fun,
                                                     parallel, minimize, 
                                                     calc_objective_function,
                                                     rank_objective_function)
 
                 # store fitness data
                 convergeData <- abind(convergeData,
-                                        objFunOutput_t1[order(objFunOutput_t1[, 2],
-                                                            decreasing = T), c(1, 3)])
+                                    objFunOutput_t1[order(objFunOutput_t1[, 2],
+                                                        decreasing = T), c(1, 3)])
 
                 # cat generation and save timing 
-                cat(i,"-", sep = "")
+                cat(i, "-", sep = "")
                 t1 <- c(t1, Sys.time())
 
                 # 3. check convergence ----------------
                 if (i > 10 & converge == TRUE) {
-                    if(isTRUE(all.equal(mean(convergeData[1:(P * 0.25), 2, i]),
+                    if(isTRUE(all.equal(mean(convergeData[1:(P * 0.5), 2, i]),
+                                        convergeData[1, 2, i],
+                                        check.names = F,
+                                        tolerance = tol)) & 
+                       isTRUE(all.equal(mean(convergeData[1:(P * 0.5), 2, (i - 1)]),
                                         convergeData[1, 2, i],
                                         check.names = F,
                                         tolerance = tol))) {
-                        converged <- converged + 1
-                        if (converged >= 1) {
                         cat("\n#### Converged! ####")
                         break
-                        }
                     }
                 }
-            }
-    
+        }
+        
     #Step 4: process output ----------------
     bestModel <- generation_t1[convergeData[1, 1, i], ]
     value <- convergeData[1, 2, dim(convergeData)[3]]
@@ -267,7 +258,7 @@ GAfun <- function(Y, X, iter, family = "gaussian",
     } else {converged <- "No"}
 
     output <- list("BestModel" = colnames(X)[bestModel == 1],
-                   objFun = list("Obj_fn" = objFun, 
+                   obj_fun = list("obj_fun" = obj_fun, 
                                  value = as.numeric(round(value, 4))),
                    iter = dim(convergeData)[3],
                    converged = converged,
@@ -283,24 +274,26 @@ GAfun <- function(Y, X, iter, family = "gaussian",
 ##############
 
 #initiative founding chromosomes
-generate_founders <- function(X, start_chrom = NULL) {
+generate_founders <- function(X, start_chrom) {
 
-    #d: #number of genes/variables in design matrix
-    #P: #number of parent chromosomes
-    #geneSample: Random sample of genes/vars for initial parent dataet
-    #firstgeneration:
-    #generation_t:
+    # C: number of genes/variables in design matrix
+    # P: #number of parent chromosomes
+    # geneSample: Random sample of genes/vars for initial parent dataet
+    # firstgeneration:
+    # generation_t:
 
     # number of predictors ---------------
     C <- dim(X)[2]
 
     # number of founders ----------------
     if (is.null(start_chrom)) {
-        P <- 2 * C
-        if (P > 200) {P <- 200
-        } else if (P < 20) {
-        P <- 10 * C}}
-    else {P <- start_chrom}
+        P <- choose(C, 2)
+        if (P > 200) {         #check for max chrom 
+            P <- 200 }
+        if (P %% 2 != 0) {     #check for even number of parents
+            P <- P - 1
+        }
+    } else {P <- start_chrom}  #user number of chroms
 
     #randomly generate founders ----------------
     geneSample <- sample(c(0, 1),
@@ -327,16 +320,10 @@ generate_founders <- function(X, start_chrom = NULL) {
     return(generation_t0)
 }
 
-evaluate_fitness <- function(generation_t0, Y, X, family, objFun,
+evaluate_fitness <- function(generation_t0, Y, X, family, obj_fun,
                              parallel, minimize, 
                              calc_objective_function, 
                              rank_objective_function) {
-
-    # get objects ----------------
-    #family <- get("family", mode = "any", envir = parent.frame())
-    #objFun <- get("objFun", mode = "any", envir= parent.frame())
-    #parallel <- get("parallel", mode = "any", envir= parent.frame())
-    #minimize <- get("minimize", mode = "any", envir= parent.frame())
 
     #number parent chromosomes  
     P <- dim(generation_t0)[1]
@@ -352,13 +339,13 @@ evaluate_fitness <- function(generation_t0, Y, X, family, objFun,
         if (family == "gaussian") {
             objFunOutput <- sapply(1:P, function(i) {
                 mod <- lm(Y ~ X[, generation_t0[i, ] == 1])
-                calc_objective_function(mod)
+                calc_objective_function(mod, obj_fun)
                 })
         # glm ----------------
         } else if(family != "gaussian") {
             objFunOutput <- sapply(1:P, function(i) {
                 mod <- glm(Y ~ X[, generation_t0[i, ] == 1], family = family)
-                calc_objective_function(mod)
+                calc_objective_function(mod, obj_fun)
             })
         }
 
@@ -374,22 +361,22 @@ evaluate_fitness <- function(generation_t0, Y, X, family, objFun,
         if (family == "gaussian") {
             objFunOutput <- unlist(mclapply(1:P, function(i) {
                 mod <- lm(Y ~ X[, generation_t0[i, ] == 1])
-                calc_objective_function(mod)
+                calc_objective_function(mod, obj_fun)
             }, mc.preschedule = preschedule, mc.cores = nCores))
         # glm ----------------
         } else if(family != "gaussian") {
             objFunOutput <- unlist(mclapply(1:P, function(i) {
                 mod <- glm(Y ~ X[, generation_t0[i, ] == 1], family = family)
-                calc_objective_function(mod)
+                calc_objective_function(mod, obj_fun)
             }, mc.preschedule = preschedule, mc.cores = nCores))
         }
     }
 
     # rank ----------------
-    rank <- rank_objective_function(objFunOutput)
+    parent_rank <- rank_objective_function(objFunOutput, obj_fun, minimize)
 
     # return rankings ----------------
-    return(rank)
+    return(parent_rank)
 }
 
 create_next_generation <- function(generation_t0, objFunOutput_t0,
@@ -400,20 +387,14 @@ create_next_generation <- function(generation_t0, objFunOutput_t0,
                                    mutate_child,
                                    mutation_rate) {
 
-    # set variables
+    # set variables and
     P <- dim(generation_t0)[1]
     C <- dim(generation_t0)[2]
-    rank <- objFunOutput_t0[, 2]
+    parent_rank <- objFunOutput_t0[, 2]
     
-    # inherit variables
-    #match.fun(user_cross_function)
-    #crossover_method <- get("crossover_method", mode = "any", envir = parent.frame())
-    #pCrossover <- get("pCrossover", mode = "any", envir = parent.frame())
-    #mutation_rate <- get("mutation_rate", mode = "any", envir = parent.frame())
-    
-    select_parents <- match.fun(select_parents)
-    crossover_parents <- match.fun(crossover_parents)
-    mutate_child <- match.fun(mutate_child)
+    #select_parents <- match.fun(select_parents)
+    #crossover_parents <- match.fun(crossover_parents)
+    #mutate_child <- match.fun(mutate_child)
 
     #Create matrix for next generation
     generation_t1 <- matrix(NA, dim(generation_t0)[1], dim(generation_t0)[2])
@@ -427,29 +408,26 @@ create_next_generation <- function(generation_t0, objFunOutput_t0,
 
         
         # Selection ----------------
-        parentInd <- select_parents(generation_t0)
-        print("select")
-        
+        parentInd <- select_parents(generation_t0, parent_rank, P)
+
         # Crossover ---------------- 
         children <- crossover_parents(generation_t0, parentInd, 
-                                      crossover_method, pCrossover, rank)
-        print("crossover")
+                                      crossover_method, pCrossover, parent_rank)
+
         # Mutation ----------------
         child1 <- mutate_child(mutation_rate, children[1, ], P)
         child2 <- mutate_child(mutation_rate, children[2, ], P)
-        print("mutate")
+
         # Check child dups and all zeros -----------------
-        #if (all(!rowSums(generation_t1 == child1, na.rm = T) == C,
-        #        !rowSums(generation_t1 == child2, na.rm = T) == C) &
-        #        sum(child1) > 0 & sum(child2) > 0) {
+        if (all(!rowSums(generation_t1 == child1, na.rm = T) == C,
+                !rowSums(generation_t1 == child2, na.rm = T) == C) &
+                sum(child1) > 0 & sum(child2) > 0) {
             generation_t1[c(i, i + 1), ] <- rbind(child1, child2)
-            #update counter
-        i <- i + 2
-        #}
-        cat(i)
+            # update counter
+            i <- i + 2
+        }
     }
-    
-    #return new new generation
+    # return new new generation
     return(generation_t1)
 }
 
@@ -459,14 +437,14 @@ create_next_generation <- function(generation_t0, objFunOutput_t0,
 # simulation
 ##############
 
-#simulate toy dataset
+# simulate toy dataset
 library(simrel)
 n <- 100
-p <- 10
+p <- 25
 m <- 5
 q <- 5
-gamma <- 2
-R2 <- 0.8
+gamma <- 0
+R2 <- 0.5
 relpos <- sample(1:p, m, replace = F)
 dat <- simrel(n, p, m, q, relpos, gamma, R2)
 x <- dat$X
@@ -476,34 +454,34 @@ y <- dat$Y
 #test function with simulated data
 ##############
 
-output.meth1 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth1 <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                     crossover_method = "method1", converge = T, family = "gaussian",
                       pCrossover = 0.9)
-output.meth1.all <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth1.all <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                           crossover_method = "method1", converge = F, family = "gaussian",
                       pCrossover = 0.9)
-output.meth2 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth2 <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                           crossover_method = "method2", converge = T, family = "gaussian",
                           pCrossover = 0.9)
-output.meth2.all <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth2.all <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                       crossover_method = "method2", converge = F, family = "gaussian",
                       pCrossover = 0.9)
-output.meth3 <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth3 <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                           crossover_method = "method3", converge = T, family = "gaussian",
                           pCrossover = 0.9)
-output.meth3.all <- GAfun(y, x, iter = 100, objFun = "AIC", parallel = F,
+output.meth3.all <- select(y, x, iter = 100, obj_fun = "AIC", parallel = F,
                       crossover_method = "method3", converge = F, family = "gaussian",
                       pCrossover = 0.9)
 
 
-test <- rbind(c(output.meth1$objFun, output.meth1$iter),
-        c(output.meth1.all$objFun, output.meth1.all$iter),
-        c(output.meth2$objFun,     output.meth2$iter),
-        c(output.meth2.all$objFun, output.meth2.all$iter),
-        c(output.meth3$objFun,     output.meth3$iter),
-        c(output.meth3$objFun,     output.meth3.all$iter))
+test <- rbind(c(output.meth1$obj_fun, output.meth1$iter),
+        c(output.meth1.all$obj_fun, output.meth1.all$iter),
+        c(output.meth2$obj_fun,     output.meth2$iter),
+        c(output.meth2.all$obj_fun, output.meth2.all$iter),
+        c(output.meth3$obj_fun,     output.meth3$iter),
+        c(output.meth3$obj_fun,     output.meth3.all$iter))
 
-colnames(test) <- c("ObjFun", "value", "iterations")
+colnames(test) <- c("obj_fun", "value", "iterations")
 rownames(test) <- grep("output.meth", ls(), value = T)
 test
 
@@ -535,7 +513,7 @@ for (i in 1:length(plots)) {
                ylim = c(min(convergeData[, 2, ], na.rm = T),
                         max(convergeData[, 2, ], na.rm = T)),
                xlim = c(1, output$iter), xlab = "Generations", ylab = "AIC",
-               main = paste("GA performance using \n objFun = AIC, lm \n, ",
+               main = paste("GA performance using \n obj_fun = AIC, lm \n, ",
                             plots[i]))
         for (i in 2:output$iter) {
             points(jitter(rep(i, nrow(convergeData))), convergeData[, 2, i], type = "p",
@@ -546,7 +524,7 @@ for (i in 1:length(plots)) {
         lines(1:output$iter, sapply(1:output$iter,
                                    function(x) convergeData[1, 2, x]), type = "l",
              xlab = "iterations", ylab = "AIC", col = "red", lwd = 2,
-             main = paste("Best AIC per iteration \n objFun = AIC, lm \n",
+             main = paste("Best AIC per iteration \n obj_fun = AIC, lm \n",
                           plots[i]))
         lines(1:output$iter, sapply(1:output$iter,
                                    function(x) mean(convergeData[, 2, x])),
